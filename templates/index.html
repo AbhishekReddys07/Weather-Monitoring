@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Weather Monitoring Dashboard</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <style>
         body {
@@ -36,37 +35,54 @@
         img {
             max-width: 100%;
             height: auto;
-            margin-top: 10px; /* Added margin for better spacing */
+            margin-top: 10px;
         }
         .chart-title {
             margin-top: 20px;
-            font-weight: bold; /* Bold titles for better emphasis */
+            font-weight: bold;
+        }
+        .alert-section {
+            margin: 20px 0;
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>Weather Monitoring Dashboard</h1>
-        <p>Real-time weather data and daily summaries</p>
     </div>
 
     <div class="container">
-        <h2>Current Weather Data</h2>
+        <div class="alert-section">
+            <h2>Alerts</h2>
+            <ul class="list-group">
+                {% for alert in alerts %}
+                    <li class="list-group-item list-group-item-danger">{{ alert }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+
         <div class="table-container">
-            <table class="table table-bordered table-striped">
-                <thead class="thead-dark">
+            <h2>Current Weather Data</h2>
+            <table class="table table-striped">
+                <thead>
                     <tr>
                         <th>City</th>
                         <th>Temperature (°C)</th>
+                        <th>Humidity (%)</th>
+                        <th>Wind Speed (m/s)</th>
                         <th>Condition</th>
+                        <th>Last Updated</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for city, data in weather_data.items() %}
                         <tr>
                             <td>{{ city }}</td>
-                            <td>{{ data.temp }}</td>
-                            <td>{{ data.main_condition }}</td>
+                            <td>{{ data['temp'] }}</td>
+                            <td>{{ data['humidity'] }}</td>
+                            <td>{{ data['wind_speed'] }}</td>
+                            <td>{{ data['main_condition'] }}</td>
+                            <td>{{ data['update_time'] }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
@@ -75,75 +91,43 @@
 
         <div class="table-container">
             <h2>Daily Weather Summaries</h2>
-            <table class="table table-bordered table-striped">
-                <thead class="thead-dark">
+            <table class="table table-striped">
+                <thead>
                     <tr>
                         <th>City</th>
                         <th>Date</th>
-                        <th>Average Temperature (°C)</th>
-                        <th>Max Temperature (°C)</th>
-                        <th>Min Temperature (°C)</th>
-                        <th>Dominant Condition</th>
+                        <th>Avg Temp (°C)</th>
+                        <th>Max Temp (°C)</th>
+                        <th>Min Temp (°C)</th>
+                        <th>Condition</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for city, date, avg_temp, max_temp, min_temp, dominant_condition in daily_summaries %}
+                    {% for city, date, avg_temp, max_temp, min_temp, condition in daily_summaries %}
                         <tr>
                             <td>{{ city }}</td>
                             <td>{{ date }}</td>
                             <td>{{ avg_temp }}</td>
                             <td>{{ max_temp }}</td>
                             <td>{{ min_temp }}</td>
-                            <td>{{ dominant_condition }}</td>
+                            <td>{{ condition }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
 
-        <h2>Forecast Data</h2>
         <div class="table-container">
-            <table class="table table-bordered table-striped">
-                <thead class="thead-dark">
-                    <tr>
-                        <th>City</th>
-                        <th>Forecast Time</th>
-                        <th>Temperature (°C)</th>
-                        <th>Condition</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for city, forecasts in forecast_data.items() %}
-                        {% for forecast in forecasts %}
-                            <tr>
-                                <td>{{ city }}</td>
-                                <td>{{ forecast.forecast_time }}</td>
-                                <td>{{ forecast.temp }}</td>
-                                <td>{{ forecast.condition }}</td>
-                            </tr>
-                        {% endfor %}
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <h2>Weather Charts</h2>
-        <div class="row">
-            {% for city, plot_url in weather_plot.items() %}
-                <div class="col-md-6">
-                    <div class="chart-title">Daily Temperature Summary for {{ city }}</div> <!-- Added chart title -->
-                    <img src="data:image/png;base64,{{ plot_url }}" alt="Weather Chart for {{ city }}" class="img-fluid">
-                </div>
+            <h2>Daily Temperature Summary Charts</h2>
+            {% for city in weather_data.keys() %}
+                <div class="chart-title">Temperature Summary for {{ city }}</div>
+                <img src="data:image/png;base64,{{ plot_urls[city] }}" alt="Temperature Summary for {{ city }}">
             {% endfor %}
         </div>
     </div>
 
     <div class="footer">
-        <p>&copy; 2024 Weather Monitoring App | Developed by Abhishek Reddy S | All rights reserved</p>
+        <p>&copy; 2024 Weather Monitoring System</p>
     </div>
-
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 </body>
 </html>
