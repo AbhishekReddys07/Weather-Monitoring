@@ -3,7 +3,7 @@
 ## Overview
 The Weather Monitoring System is a web application that continuously retrieves weather data for major metros in India using the OpenWeatherMap API. The application processes this data to provide summarized insights, including daily weather summaries, alert thresholds, and visualizations.
 
-Note: Please ensure that your device is connected to the internet.
+Note: Please ensure that your device is connected to the internet. The main python is fetch_weather.py
 ## Features
 
 - Real-time weather data retrieval for specified cities.
