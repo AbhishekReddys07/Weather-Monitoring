@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Monitoring</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Real-Time Weather Monitoring</h1>
+    <h2>Latest Weather Data</h2>
+    <ul id="weather-data">
+        {% for data in weather_data %}
+            <li>{{ data.city }}: {{ data.temp }}°C, {{ data.main_condition }} (Updated: {{ data.update_time }})</li>
+        {% endfor %}
+    </ul>
+
+    <h2>Daily Weather Summary (Past 7 Days)</h2>
+    <canvas id="dailySummaryChart" width="400" height="200"></canvas>
+
+    <script>
+        // Fetch daily summaries from the server
+        fetch('/daily_summaries')
+        .then(response => response.json())
+        .then(data => {
+            const labels = data.map(summary => summary[1]);  // Dates
+            const avgTemps = data.map(summary => summary[2]); // Avg Temp
+            const maxTemps = data.map(summary => summary[3]); // Max Temp
+            const minTemps = data.map(summary => summary[4]); // Min Temp
+
+            // Create a line chart using Chart.js
+            const ctx = document.getElementById('dailySummaryChart').getContext('2d');
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Avg Temp (°C)',
+                            data: avgTemps,
+                            borderColor: 'blue',
+                            fill: false
+                        },
+                        {
+                            label: 'Max Temp (°C)',
+                            data: maxTemps,
+                            borderColor: 'red',
+                            fill: false
+                        },
+                        {
+                            label: 'Min Temp (°C)',
+                            data: minTemps,
+                            borderColor: 'green',
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        })
+        .catch(error => console.error('Error fetching daily summaries:', error));
+    </script>
+</body>
+</html>
