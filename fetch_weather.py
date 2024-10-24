@@ -6,53 +6,69 @@ from flask import Flask, render_template
 import matplotlib.pyplot as plt
 import io
 import base64
-from threading import Thread
+from threading import Thread, Event, Lock
 
 app = Flask(__name__)
 
 # Configurable parameters
-API_KEY = '9a9dc888ba8d74cb6a0b1aae52077caa'
+API_KEY = '9a9dc888ba8d74cb6a0b1aae52077caa'  # Replace with your actual API key
 CITIES = ["Delhi", "Mumbai", "Chennai", "Bangalore", "Kolkata", "Hyderabad"]
 INTERVAL = 300  # 5 minutes (configurable)
 TEMP_UNIT = "metric"  # Can be changed to "imperial" for Fahrenheit
+ALERT_THRESHOLD = 28  # Alert temperature threshold
+
+# Global list to store alerts and an Event to stop the thread gracefully
+alerts = []
+alerts_lock = Lock()  # Lock for alerts access
+stop_event = Event()
 
 # SQLite database setup for daily summaries and alerts
 def init_db():
-    conn = sqlite3.connect('weather_data.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS weather_data (
-                    city TEXT,
-                    date TEXT,
-                    temp REAL,
-                    humidity REAL,
-                    wind_speed REAL,
-                    dominant_condition TEXT
-                )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS daily_weather_summary (
-                    city TEXT,
-                    date TEXT,
-                    avg_temp REAL,
-                    max_temp REAL,
-                    min_temp REAL,
-                    dominant_condition TEXT,
-                    humidity REAL,
-                    wind_speed REAL
-                )''')
-    conn.commit()
-    conn.close()
+    with sqlite3.connect('weather_data.db', check_same_thread=False) as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS weather_data (
+                        city TEXT,
+                        date TEXT,
+                        temp REAL,
+                        humidity REAL,
+                        wind_speed REAL,
+                        dominant_condition TEXT
+                    )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS daily_weather_summary (
+                        city TEXT,
+                        date TEXT,
+                        avg_temp REAL,
+                        max_temp REAL,
+                        min_temp REAL,
+                        dominant_condition TEXT,
+                        humidity REAL,
+                        wind_speed REAL
+                    )''')
+        conn.commit()
 
-# Fetch weather data from the OpenWeatherMap API
+# Alert function to add alert messages to the global list
+def send_alert(city, temp):
+    alert_message = f"ALERT: Temperature in {city} has exceeded {ALERT_THRESHOLD}°C! Current temperature: {temp}°C"
+    print(alert_message)  # Log the alert to the console
+    with alerts_lock:  # Ensure thread-safe access to alerts
+        alerts.append(alert_message)  # Add alert to the global alerts list
+
+# Fetch weather data from the OpenWeatherMap API and send alert if temp exceeds threshold
 def fetch_weather(city):
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units={TEMP_UNIT}"
     response = requests.get(url)
     data = response.json()
 
-    if data["cod"] == 200:
+    if data.get("cod") == 200:
         main_condition = data["weather"][0]["main"]
         temp = data["main"]["temp"]
         humidity = data["main"]["humidity"]
         wind_speed = data["wind"]["speed"]
         update_time = datetime.utcfromtimestamp(data["dt"]).strftime('%Y-%m-%d %H:%M:%S')
+
+        # Trigger alert if temperature exceeds the threshold
+        if temp >= ALERT_THRESHOLD:
+            send_alert(city, temp)
 
         return {
             "city": city,
@@ -63,65 +79,36 @@ def fetch_weather(city):
             "update_time": update_time
         }
     else:
-        print(f"Error retrieving weather data for {city}: {data['message']}")
+        print(f"Error retrieving weather data for {city}: {data.get('message')}")
         return None
 
 # Calculate daily rollups and aggregates
 def calculate_daily_summary(city):
     today = datetime.utcnow().date()
-    conn = sqlite3.connect('weather_data.db', check_same_thread=False)
-    c = conn.cursor()
-    summary_query = f"SELECT avg(temp), max(temp), min(temp), dominant_condition, avg(humidity), avg(wind_speed) FROM weather_data WHERE city='{city}' AND date='{today}'"
-    c.execute(summary_query)
-    result = c.fetchone()
+    with sqlite3.connect('weather_data.db', check_same_thread=False) as conn:
+        c = conn.cursor()
+        summary_query = f"SELECT avg(temp), max(temp), min(temp), dominant_condition, avg(humidity), avg(wind_speed) FROM weather_data WHERE city=? AND date=?"
+        c.execute(summary_query, (city, str(today)))
+        result = c.fetchone()
 
-    if result:
-        avg_temp, max_temp, min_temp, dominant_condition, avg_humidity, avg_wind_speed = result
-        # Store summary in daily_weather_summary table
-        c.execute('''INSERT INTO daily_weather_summary (city, date, avg_temp, max_temp, min_temp, dominant_condition, humidity, wind_speed)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (city, str(today), avg_temp, max_temp, min_temp, dominant_condition, avg_humidity, avg_wind_speed))
-        conn.commit()
-    conn.close()
-
-# Weather forecast retrieval and prediction
-def fetch_forecast(city):
-    url = f"http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_KEY}&units={TEMP_UNIT}"
-    response = requests.get(url)
-    data = response.json()
-
-    if data["cod"] == "200":
-        forecast_data = []
-        for forecast in data["list"]:
-            temp = forecast["main"]["temp"]
-            humidity = forecast["main"]["humidity"]
-            wind_speed = forecast["wind"]["speed"]
-            condition = forecast["weather"][0]["main"]
-            forecast_time = datetime.utcfromtimestamp(forecast["dt"]).strftime('%Y-%m-%d %H:%M:%S')
-
-            forecast_data.append({
-                "city": city,
-                "temp": temp,
-                "humidity": humidity,
-                "wind_speed": wind_speed,
-                "condition": condition,
-                "forecast_time": forecast_time
-            })
-        return forecast_data
-    else:
-        print(f"Error retrieving forecast for {city}: {data['message']}")
-        return None
+        if result:
+            avg_temp, max_temp, min_temp, dominant_condition, avg_humidity, avg_wind_speed = result
+            # Store summary in daily_weather_summary table
+            c.execute('''INSERT INTO daily_weather_summary (city, date, avg_temp, max_temp, min_temp, dominant_condition, humidity, wind_speed)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (city, str(today), avg_temp, max_temp, min_temp, dominant_condition, avg_humidity, avg_wind_speed))
+            conn.commit()
 
 # Generate visualizations for daily summaries
 def generate_visualization(city):
-    conn = sqlite3.connect('weather_data.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute(f"SELECT date, avg_temp, max_temp, min_temp FROM daily_weather_summary WHERE city='{city}' ORDER BY date")
-    rows = c.fetchall()
+    with sqlite3.connect('weather_data.db', check_same_thread=False) as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT date, avg_temp, max_temp, min_temp FROM daily_weather_summary WHERE city=? ORDER BY date", (city,))
+        rows = c.fetchall()
 
     dates = [row[0] for row in rows]
     avg_temps = [row[1] for row in rows]
     max_temps = [row[2] for row in rows]
-    min_temps = [row[3] for row in rows]
+    min_temps = [row[3] for row in rows]  # Fixed this line
 
     plt.figure(figsize=(10, 6))
     plt.plot(dates, avg_temps, label="Average Temp")
@@ -137,10 +124,29 @@ def generate_visualization(city):
     plt.savefig(img, format='png')
     img.seek(0)
     plot_url = base64.b64encode(img.getvalue()).decode('utf8')
-    plt.close()  # Close the plot to free memory
+    plt.close()
 
-    conn.close()
     return plot_url
+
+# Save current weather data to database
+def save_weather_data(data):
+    with sqlite3.connect('weather_data.db', check_same_thread=False) as conn:
+        c = conn.cursor()
+        date_today = datetime.utcnow().date()
+        c.execute('''INSERT INTO weather_data (city, date, temp, humidity, wind_speed, dominant_condition)
+                     VALUES (?, ?, ?, ?, ?, ?)''', (data['city'], str(date_today), data['temp'], data['humidity'], data['wind_speed'], data['main_condition']))
+        conn.commit()
+
+# Fetch daily summaries from the database
+def get_daily_summaries():
+    daily_summaries = []
+    with sqlite3.connect('weather_data.db', check_same_thread=False) as conn:
+        c = conn.cursor()
+        for city in CITIES:
+            c.execute(f"SELECT date, avg_temp, max_temp, min_temp, dominant_condition FROM daily_weather_summary WHERE city=?", (city,))
+            summaries = c.fetchall()
+            daily_summaries.extend([(city, *summary) for summary in summaries])
+    return daily_summaries
 
 # Fetch current weather data
 def get_weather_data():
@@ -149,39 +155,8 @@ def get_weather_data():
         data = fetch_weather(city)
         if data:
             weather_data[city] = data
-            save_weather_data(data)  # Save current weather data to the database
+            save_weather_data(data)
     return weather_data
-
-# Save current weather data to database
-def save_weather_data(data):
-    conn = sqlite3.connect('weather_data.db', check_same_thread=False)
-    c = conn.cursor()
-    date_today = datetime.utcnow().date()
-    c.execute('''INSERT INTO weather_data (city, date, temp, humidity, wind_speed, dominant_condition)
-                 VALUES (?, ?, ?, ?, ?, ?)''', (data['city'], str(date_today), data['temp'], data['humidity'], data['wind_speed'], data['main_condition']))
-    conn.commit()
-    conn.close()
-
-# Fetch daily summaries from the database
-def get_daily_summaries():
-    daily_summaries = []
-    conn = sqlite3.connect('weather_data.db', check_same_thread=False)
-    c = conn.cursor()
-    for city in CITIES:
-        c.execute(f"SELECT date, avg_temp, max_temp, min_temp, dominant_condition FROM daily_weather_summary WHERE city='{city}'")
-        summaries = c.fetchall()
-        daily_summaries.extend([(city, *summary) for summary in summaries])
-    conn.close()
-    return daily_summaries
-
-# Fetch forecast data
-def get_forecast_data():
-    forecast_data = {}
-    for city in CITIES:
-        data = fetch_forecast(city)
-        if data:
-            forecast_data[city] = data
-    return forecast_data
 
 # Generate weather chart for visualization
 def generate_weather_chart():
@@ -192,27 +167,26 @@ def generate_weather_chart():
 
 # Main function to continuously fetch weather data in a separate thread
 def run_weather_monitoring():
-    while True:
+    while not stop_event.is_set():
         get_weather_data()  # Fetch current weather data and save to database
         for city in CITIES:
             calculate_daily_summary(city)  # Calculate daily summary
         time.sleep(INTERVAL)  # Sleep for the configured interval before next update
 
-# Start the weather monitoring thread
-Thread(target=run_weather_monitoring, daemon=True).start()
-
 @app.route('/')
 def index():
     weather_data = get_weather_data()  # Fetch current weather data
     daily_summaries = get_daily_summaries()  # Fetch daily summaries
-    forecast_data = get_forecast_data()  # Fetch forecast data
     plot_urls = generate_weather_chart()  # Generate visualizations
     return render_template('index.html', 
                            weather_data=weather_data, 
                            daily_summaries=daily_summaries, 
-                           forecast_data=forecast_data, 
-                           weather_plot=plot_urls)
+                           alerts=alerts, 
+                           plot_urls=plot_urls)  # Pass plot_urls to the template
 
+# Start the Flask application
 if __name__ == '__main__':
     init_db()  # Initialize the database
+    weather_thread = Thread(target=run_weather_monitoring, daemon=True)  # Start weather monitoring in a thread
+    weather_thread.start()
     app.run(debug=True, host='0.0.0.0', port=5000)  # Start the Flask application
